@@ -389,6 +389,7 @@ function showGameScreen() {
 
 function renderWaitingRoom() {
   const players = state.players || [];
+  const isHost = networkRole === "host";
   waitingPlayers.innerHTML = players.length
     ? players.map((player) => {
       const character = getCharacter(player.character);
@@ -397,7 +398,8 @@ function renderWaitingRoom() {
     }).join("")
     : `<div class="waitingPlayer"><strong>대기 중</strong><span>연결을 기다리는 중</span></div>`;
 
-  startGameButton.disabled = networkRole !== "host" || players.length < 2 || gameStarted;
+  startGameButton.hidden = !isHost;
+  startGameButton.disabled = !isHost || players.length < 2 || gameStarted;
 }
 
 function sendLobbyUpdate() {
