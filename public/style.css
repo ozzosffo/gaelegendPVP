@@ -436,11 +436,31 @@ p {
 
 .waitingPlayer {
   display: flex;
+  align-items: center;
   justify-content: space-between;
   gap: 8px;
   padding: 8px 10px;
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.07);
+}
+
+.waitingPlayerInfo {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.kickPlayerButton {
+  min-height: 30px;
+  padding: 0 10px;
+  border-color: rgba(248, 113, 113, 0.44);
+  background: rgba(248, 113, 113, 0.14);
+  color: #fecaca;
+  font-size: 0.82rem;
+}
+
+.kickPlayerButton:hover {
+  background: rgba(248, 113, 113, 0.24);
 }
 
 .characterGrid.compact {

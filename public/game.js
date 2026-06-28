@@ -229,9 +229,14 @@ function wireChannel(channel) {
   channel.on("close", () => {
     peerChannels.delete(channel);
     if (networkRole === "host" && channel.playerId && hostState) {
+      const removedPlayer = hostState.players.find((player) => player.id === channel.playerId);
       hostState.players = hostState.players.filter((player) => player.id !== channel.playerId);
       delete peerInputs[channel.playerId];
-      sendLobbyUpdate();
+      if (removedPlayer) {
+        if (!channel.wasKicked) waitingStatus.textContent = `${removedPlayer.name}님이 대기방을 나갔습니다.`;
+        sendLobbyUpdate();
+      }
+      return;
     }
     waitingStatus.textContent = "P2P 연결이 끊겼습니다.";
   });
@@ -307,6 +312,16 @@ function handlePeerMessage(rawMessage, channel = dataChannel) {
   if (message.type === "lobby" && networkRole === "guest") {
     state = message.state;
     renderWaitingRoom();
+    return;
+  }
+  if (message.type === "kick" && networkRole === "guest") {
+    const reason = message.reason || "방장이 대기방에서 내보냈습니다.";
+    resetNetwork();
+    myId = null;
+    state = { players: [], platforms: [], world: WORLD };
+    roomCodeInput.value = "";
+    showLobby();
+    statusText.textContent = reason;
     return;
   }
   if (message.type === "character" && networkRole === "host") {
@@ -394,12 +409,36 @@ function renderWaitingRoom() {
     ? players.map((player) => {
       const character = getCharacter(player.character);
       const role = player.id === "host" ? "방장" : "참가자";
-      return `<div class="waitingPlayer"><strong>${escapeHtml(player.name)}</strong><span>${role} · ${character?.name || "캐릭터"}</span></div>`;
+      const kickButton = isHost && player.id !== "host" && !gameStarted
+        ? `<button class="kickPlayerButton" type="button" data-kick-player="${escapeHtml(player.id)}" aria-label="${escapeHtml(player.name)} 강퇴">강퇴</button>`
+        : "";
+      return `<div class="waitingPlayer"><div class="waitingPlayerInfo"><strong>${escapeHtml(player.name)}</strong><span>${role} · ${character?.name || "캐릭터"}</span></div>${kickButton}</div>`;
     }).join("")
     : `<div class="waitingPlayer"><strong>대기 중</strong><span>연결을 기다리는 중</span></div>`;
 
   startGameButton.hidden = !isHost;
   startGameButton.disabled = !isHost || players.length < 2 || gameStarted;
+}
+
+function kickWaitingPlayer(playerId) {
+  if (networkRole !== "host" || !hostState || playerId === "host") return;
+  const player = hostState.players.find((candidate) => candidate.id === playerId);
+  if (!player) return;
+
+  const channel = [...peerChannels].find((candidate) => candidate.playerId === playerId);
+  if (channel) {
+    channel.wasKicked = true;
+    sendToChannel(channel, { type: "kick", reason: "방장이 대기방에서 내보냈습니다." });
+    peerChannels.delete(channel);
+    window.setTimeout(() => {
+      if (typeof channel.close === "function") channel.close();
+    }, 120);
+  }
+
+  hostState.players = hostState.players.filter((candidate) => candidate.id !== playerId);
+  delete peerInputs[playerId];
+  waitingStatus.textContent = `${player.name}님을 대기방에서 내보냈습니다.`;
+  sendLobbyUpdate();
 }
 
 function sendLobbyUpdate() {
@@ -1543,6 +1582,12 @@ startGameButton.addEventListener("click", () => {
 
 copyRoomCodeButton.addEventListener("click", () => {
   copyRoomCode();
+});
+
+waitingPlayers.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-kick-player]");
+  if (!button) return;
+  kickWaitingPlayer(button.dataset.kickPlayer);
 });
 
 backToLobbyButton.addEventListener("click", () => {
