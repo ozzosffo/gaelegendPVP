@@ -51,7 +51,10 @@
 
           <section class="waitingPanel signalPanel">
             <h2>방 코드</h2>
-            <div id="roomCodeDisplay" class="roomCodeDisplay">------</div>
+            <div class="roomCodeBox">
+              <div id="roomCodeDisplay" class="roomCodeDisplay">------</div>
+              <button id="copyRoomCodeButton" class="copyRoomCodeButton" type="button" aria-label="방 코드 복사" disabled>복사</button>
+            </div>
             <div class="lobbyActions">
               <button id="startGameButton" type="button">게임 시작</button>
             </div>

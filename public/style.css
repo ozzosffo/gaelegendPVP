@@ -244,6 +244,13 @@ p {
   grid-template-columns: 1fr;
 }
 
+.roomCodeBox {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: stretch;
+  gap: 8px;
+}
+
 .roomCodeDisplay {
   min-height: 76px;
   display: grid;
@@ -256,6 +263,21 @@ p {
   font-weight: 900;
   letter-spacing: 0.18em;
   text-align: center;
+}
+
+.copyRoomCodeButton {
+  min-width: 64px;
+  min-height: 0;
+  padding: 0 12px;
+  border-color: rgba(248, 250, 252, 0.2);
+  background: rgba(248, 250, 252, 0.12);
+  color: #f8fafc;
+  font-size: 0.9rem;
+}
+
+.copyRoomCodeButton:disabled {
+  cursor: default;
+  opacity: 0.42;
 }
 
 .lobbyFloatLayer {

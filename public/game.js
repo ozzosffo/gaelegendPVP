@@ -17,6 +17,7 @@ const guestButton = document.querySelector("#guestButton");
 const startGameButton = document.querySelector("#startGameButton");
 const backToLobbyButton = document.querySelector("#backToLobby");
 const roomCodeDisplay = document.querySelector("#roomCodeDisplay");
+const copyRoomCodeButton = document.querySelector("#copyRoomCodeButton");
 const lobbyFloatLayer = document.querySelector("#lobbyFloatLayer");
 
 let myId = null;
@@ -151,6 +152,37 @@ function peerIdForRoom(code) {
   return `${ROOM_PREFIX}${code}`;
 }
 
+function setRoomCodeDisplay(code) {
+  const value = code || "------";
+  roomCodeDisplay.textContent = value;
+  copyRoomCodeButton.disabled = !code;
+}
+
+async function copyRoomCode() {
+  const code = normalizeRoomCode(roomCodeDisplay.textContent);
+  if (!code || code === "------") return;
+
+  try {
+    await navigator.clipboard.writeText(code);
+  } catch {
+    const input = document.createElement("input");
+    input.value = code;
+    input.setAttribute("readonly", "");
+    input.style.position = "fixed";
+    input.style.opacity = "0";
+    document.body.append(input);
+    input.select();
+    document.execCommand("copy");
+    input.remove();
+  }
+
+  waitingStatus.textContent = `방 코드 ${code} 복사 완료`;
+  copyRoomCodeButton.textContent = "완료";
+  window.setTimeout(() => {
+    copyRoomCodeButton.textContent = "복사";
+  }, 900);
+}
+
 function resetNetwork() {
   for (const channel of peerChannels) channel.close();
   if (dataChannel && !peerChannels.has(dataChannel)) dataChannel.close();
@@ -166,7 +198,7 @@ function resetNetwork() {
   peerInputs = {};
   gameStarted = false;
   nextGuestNumber = 1;
-  roomCodeDisplay.textContent = "------";
+  setRoomCodeDisplay("");
 }
 
 function createPeer(peerId) {
@@ -213,9 +245,9 @@ async function createHostOffer() {
   networkRole = "host";
   const code = createRoomCode();
   roomCodeInput.value = code;
-  roomCodeDisplay.textContent = code;
+  setRoomCodeDisplay(code);
   beginHostLobby();
-  roomCodeDisplay.textContent = code;
+  setRoomCodeDisplay(code);
   peerConnection = createPeer(peerIdForRoom(code));
   peerConnection.on("open", () => {
     waitingStatus.textContent = "방 코드가 만들어졌습니다. 친구에게 코드를 알려주세요.";
@@ -232,10 +264,10 @@ async function createGuestAnswer() {
   const code = normalizeRoomCode(roomCodeInput.value);
   if (!code) throw new Error("방 코드를 입력해 주세요.");
   roomCodeInput.value = code;
-  roomCodeDisplay.textContent = code;
+  setRoomCodeDisplay(code);
   state = { type: "state", world: WORLD, platforms: PLATFORMS, players: [] };
   showWaitingRoom();
-  roomCodeDisplay.textContent = code;
+  setRoomCodeDisplay(code);
   waitingStatus.textContent = "방에 접속하는 중입니다.";
   peerConnection = createPeer();
   peerConnection.on("open", () => {
@@ -1505,6 +1537,10 @@ guestButton.addEventListener("click", () => {
 
 startGameButton.addEventListener("click", () => {
   startGameFromWaiting();
+});
+
+copyRoomCodeButton.addEventListener("click", () => {
+  copyRoomCode();
 });
 
 backToLobbyButton.addEventListener("click", () => {
