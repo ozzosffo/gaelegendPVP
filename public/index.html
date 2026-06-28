@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>개레전드 PVP</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <section id="characterSelect" class="selectScreen">
+        <div id="lobbyFloatLayer" class="lobbyFloatLayer" aria-hidden="true"></div>
+
+        <div class="lobbyDock">
+          <div class="selectHeader">
+            <p class="eyebrow">개레전드 PVP 로비</p>
+            <h1>개레전드 PVP</h1>
+            <p>닉네임을 정하고 방을 만들거나, 받은 방 코드로 대기방에 들어가세요.</p>
+          </div>
+
+          <section class="lobbyPanel">
+            <input id="nameInput" maxlength="16" placeholder="닉네임" autocomplete="off" />
+            <input id="roomCodeInput" maxlength="8" placeholder="들어갈 방 코드" autocomplete="off" />
+            <div class="lobbyActions">
+              <button id="hostButton" type="button">방 만들기</button>
+              <button id="guestButton" type="button">방 들어가기</button>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <section id="waitingRoom" class="waitingRoom isHidden">
+        <section class="hud">
+          <div>
+            <h1>대기방</h1>
+            <p id="waitingStatus">친구를 기다리는 중입니다.</p>
+          </div>
+          <button id="backToLobby" type="button" class="secondaryButton">로비로</button>
+        </section>
+
+        <section class="waitingLayout">
+          <section class="waitingPanel">
+            <h2>참가자</h2>
+            <div id="waitingPlayers" class="waitingPlayers"></div>
+          </section>
+
+          <section class="waitingPanel">
+            <h2>캐릭터</h2>
+            <div id="characterGrid" class="characterGrid compact" aria-label="캐릭터 선택 목록"></div>
+          </section>
+
+          <section class="waitingPanel signalPanel">
+            <h2>방 코드</h2>
+            <div id="roomCodeDisplay" class="roomCodeDisplay">------</div>
+            <div class="lobbyActions">
+              <button id="startGameButton" type="button">게임 시작</button>
+            </div>
+          </section>
+        </section>
+      </section>
+
+      <section id="gameScreen" class="gameScreen isHidden">
+        <section class="hud">
+          <div>
+            <h1>개레전드 PVP</h1>
+            <p id="status">캐릭터를 선택하면 시작할 수 있습니다.</p>
+          </div>
+          <button id="changeCharacter" type="button" class="secondaryButton">캐릭터 변경</button>
+        </section>
+
+        <section class="arenaWrap">
+          <canvas id="game" width="1280" height="720"></canvas>
+          <div id="scoreboard" class="scoreboard"></div>
+          <div id="abilityBar" class="abilityBar"></div>
+        </section>
+
+        <section class="controls">
+          <span>A/D 또는 방향키 이동</span>
+          <span>W/위쪽/스페이스 점프</span>
+          <span>J 평타 · K/L 스킬 · H 궁</span>
+        </section>
+      </section>
+    </main>
+
+    <script src="https://unpkg.com/peerjs@1.5.5/dist/peerjs.min.js"></script>
+    <script type="module" src="game.js"></script>
+  </body>
+</html>
