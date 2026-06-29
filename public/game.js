@@ -8,6 +8,7 @@ const roomCodeInput = document.querySelector("#roomCodeInput");
 const statusText = document.querySelector("#status");
 const scoreboard = document.querySelector("#scoreboard");
 const abilityBar = document.querySelector("#abilityBar");
+const roundNotice = document.querySelector("#roundNotice");
 const changeCharacterButton = document.querySelector("#changeCharacter");
 const waitingRoom = document.querySelector("#waitingRoom");
 const waitingStatus = document.querySelector("#waitingStatus");
@@ -24,10 +25,10 @@ let myId = null;
 let state = { players: [], platforms: [], world: { width: 3200, height: 900, floor: 808 } };
 let latestEvent = "";
 let eventUntil = 0;
-let selectedCharacter = "blaze";
+let selectedCharacter = "redbat";
 const clawAfterimages = [];
 const lastClawTimers = new Map();
-const camera = { x: 0, y: 0, initialized: false };
+const camera = { x: 0, y: 0, initialized: false, scale: 0.62 };
 let peerConnection = null;
 let dataChannel = null;
 let peerChannels = new Set();
@@ -41,18 +42,12 @@ let gameStarted = false;
 let nextGuestNumber = 1;
 
 const characters = [
-  { id: "blaze", name: "불꽃", color: "#ff4d6d", speed: 78, power: 72, jump: 68 },
-  { id: "volt", name: "번개", color: "#38bdf8", speed: 92, power: 56, jump: 82 },
-  { id: "brick", name: "철벽", color: "#22c55e", speed: 58, power: 94, jump: 52 },
-  { id: "shade", name: "그림자", color: "#a78bfa", speed: 84, power: 64, jump: 88 },
   {
     id: "redbat",
     name: "흡혈귀",
     color: "#ef233c",
-    speed: 74,
-    power: 86,
-    jump: 76,
     asset: "assets/red-bat.png",
+    description: "고독한 피의 파수꾼",
     sprites: {
       idle: "assets/red-bat.png",
       clawEffect: "assets/vampire-claw-effect.png",
@@ -104,9 +99,10 @@ const keyMap = {
 };
 
 const VIEW_SCALE = 0.62;
+const ROUND_END_VIEW_SCALE = 1.08;
 const PLAYER_WIDTH = 34;
 const PLAYER_HEIGHT = 54;
-const WORLD = { width: 3200, height: 900, floor: 808, gravity: 0.78, friction: 0.82, moveForce: 1.45, jump: -23.5, maxSpeed: 8.8 };
+const WORLD = { width: 3200, height: 900, floor: 808, gravity: 0.9, friction: 0.82, moveForce: 1.45, jump: -18.5, maxSpeed: 8.8 };
 const PLATFORMS = [
   { x: 180, y: 666, w: 330, h: 24 },
   { x: 650, y: 560, w: 380, h: 24 },
@@ -117,12 +113,12 @@ const PLATFORMS = [
   { x: 3000, y: 686, w: 220, h: 24 }
 ];
 const ACTION_KEYS = ["j", "k", "l", "h"];
-const RED_BAT_GRAB_DURATION = 180;
+const RED_BAT_GRAB_DURATION = 90;
 const RED_BAT_GRAB_MIN_COOLDOWN = 90;
 const RED_BAT_GRAB_MAX_COOLDOWN = 420;
 const RED_BAT_GRAB_DAMAGE_REDUCTION = 0.65;
 const RED_BAT_DASH_DURATION = 42;
-const RED_BAT_DASH_SPEED = 38;
+const RED_BAT_DASH_SPEED = 25.5;
 const RED_BAT_ULT_AURA_RADIUS = 230;
 const RED_BAT_ULT_BURST_RADIUS = 285;
 const ROOM_PREFIX = "gaelegend-";
@@ -296,7 +292,7 @@ function handlePeerMessage(rawMessage, channel = dataChannel) {
   if (message.type === "join" && networkRole === "host") {
     const playerId = channel.playerId || `guest${nextGuestNumber++}`;
     channel.playerId = playerId;
-    addPlayer(playerId, message.name || "친구", message.character || "blaze");
+    addPlayer(playerId, message.name || "친구", message.character || "redbat");
     peerInputs[playerId] = {};
     announce(`${message.name || "친구"}님이 들어왔습니다`);
     sendToChannel(channel, { type: "joined", id: playerId });
@@ -343,6 +339,17 @@ function handlePeerMessage(rawMessage, channel = dataChannel) {
     sendInput();
     return;
   }
+  if (message.type === "returnLobby" && networkRole === "guest") {
+    gameStarted = false;
+    state = message.state;
+    latestEvent = "";
+    eventUntil = 0;
+    scoreboard.innerHTML = "";
+    abilityBar.innerHTML = "";
+    waitingStatus.textContent = "방장이 대기방으로 돌아왔습니다.";
+    showWaitingRoom();
+    return;
+  }
   if (message.type === "input" && networkRole === "host") {
     const playerId = channel?.playerId || message.id;
     if (playerId) {
@@ -386,12 +393,14 @@ function showLobby() {
   selectScreen.classList.remove("isHidden");
   waitingRoom.classList.add("isHidden");
   gameScreen.classList.add("isHidden");
+  if (roundNotice) roundNotice.textContent = "";
 }
 
 function showWaitingRoom() {
   selectScreen.classList.add("isHidden");
   waitingRoom.classList.remove("isHidden");
   gameScreen.classList.add("isHidden");
+  if (roundNotice) roundNotice.textContent = "";
   renderWaitingRoom();
 }
 
@@ -400,6 +409,8 @@ function showGameScreen() {
   waitingRoom.classList.add("isHidden");
   gameScreen.classList.remove("isHidden");
   camera.initialized = false;
+  camera.scale = VIEW_SCALE;
+  renderRoundNotice();
 }
 
 function renderWaitingRoom() {
@@ -467,7 +478,7 @@ function beginHostLobby() {
   myId = "host";
   networkRole = "host";
   gameStarted = false;
-  hostState = { type: "state", world: WORLD, platforms: PLATFORMS, players: [] };
+  hostState = { type: "state", world: WORLD, platforms: PLATFORMS, players: [], roundOver: false, winnerId: null, winnerName: "" };
   addPlayer("host", nameInput.value || "플레이어", selectedCharacter);
   hostInputs = { host: keys };
   peerInputs = {};
@@ -483,14 +494,33 @@ function startGameFromWaiting() {
     waitingStatus.textContent = "친구가 들어오면 게임을 시작할 수 있습니다.";
     return;
   }
+  resetPlayersForRound();
   gameStarted = true;
   camera.initialized = false;
+  camera.scale = VIEW_SCALE;
   lastHostTick = performance.now();
   state = createStateSnapshot();
   showGameScreen();
   renderScoreboard();
   renderAbilityBar();
   sendToPeer({ type: "start", state });
+}
+
+function returnToWaitingAfterRound() {
+  if (networkRole !== "host" || !hostState || !hostState.roundOver) return;
+  gameStarted = false;
+  clearInputKeys();
+  hostState.roundOver = false;
+  hostState.winnerId = null;
+  hostState.winnerName = "";
+  state = createStateSnapshot();
+  latestEvent = "";
+  eventUntil = 0;
+  scoreboard.innerHTML = "";
+  abilityBar.innerHTML = "";
+  waitingStatus.textContent = "대기방으로 돌아왔습니다. 준비되면 다시 시작하세요.";
+  showWaitingRoom();
+  sendToPeer({ type: "returnLobby", state });
 }
 
 function getSpawnPoint(index) {
@@ -521,7 +551,7 @@ function addPlayer(id, name, characterId) {
     facing: 1,
     grounded: false,
     hp: 100,
-    lives: 3,
+    lives: 1,
     score: 0,
     attackCooldown: 0,
     attackTimer: 0,
@@ -548,11 +578,56 @@ function addPlayer(id, name, characterId) {
   });
 }
 
+function resetPlayerForRound(player, index) {
+  const spawn = getSpawnPoint(index);
+  player.x = spawn.x;
+  player.y = spawn.y;
+  player.vx = 0;
+  player.vy = 0;
+  player.facing = index % 2 === 0 ? 1 : -1;
+  player.grounded = false;
+  player.hp = 100;
+  player.lives = 1;
+  player.attackCooldown = 0;
+  player.attackTimer = 0;
+  player.actionTotalTimer = 0;
+  player.action = "";
+  player.skillKCooldown = 0;
+  player.skillLCooldown = 0;
+  player.ultCooldown = 0;
+  player.ultActiveTimer = 0;
+  player.ultRecastReady = false;
+  player.ultAuraTick = 0;
+  player.rootTimer = 0;
+  player.dotTimer = 0;
+  player.dotTick = 0;
+  player.dotOwner = null;
+  player.damageReductionTimer = 0;
+  player.grabTargetId = null;
+  player.grabChannelTimer = 0;
+  player.dashTimer = 0;
+  player.dashHitIds?.clear();
+  player.previousButtons = {};
+  player.respawnTimer = 0;
+  player.lastHitBy = null;
+}
+
+function resetPlayersForRound() {
+  if (!hostState) return;
+  hostState.roundOver = false;
+  hostState.winnerId = null;
+  hostState.winnerName = "";
+  hostState.players.forEach((player, index) => resetPlayerForRound(player, index));
+}
+
 function createStateSnapshot() {
   return {
     type: "state",
     world: WORLD,
     platforms: PLATFORMS,
+    roundOver: Boolean(hostState.roundOver),
+    winnerId: hostState.winnerId || null,
+    winnerName: hostState.winnerName || "",
     players: hostState.players.map((player) => ({
       id: player.id,
       name: player.name,
@@ -586,6 +661,7 @@ function createStateSnapshot() {
         h: player.ultActiveTimer <= 0 ? player.ultCooldown : 0
       },
       respawning: player.respawnTimer > 0,
+      spectating: player.lives <= 0,
       score: player.score
     }))
   };
@@ -595,6 +671,17 @@ function announce(text) {
   latestEvent = text;
   eventUntil = performance.now() + 1800;
   sendToPeer({ type: "event", text });
+}
+
+function isTypingField(target) {
+  return target instanceof HTMLInputElement
+    || target instanceof HTMLTextAreaElement
+    || target instanceof HTMLSelectElement
+    || target?.isContentEditable;
+}
+
+function clearInputKeys() {
+  for (const key of Object.keys(keys)) keys[key] = false;
 }
 
 function collidePlatform(player, previousY) {
@@ -616,8 +703,48 @@ function collidePlatform(player, previousY) {
 }
 
 function healPlayer(player, amount) {
-  if (amount <= 0 || player.respawnTimer > 0) return;
+  if (amount <= 0 || player.respawnTimer > 0 || player.lives <= 0) return;
   player.hp = Math.min(100, player.hp + Math.round(amount));
+}
+
+function eliminatePlayer(player) {
+  const grabOwner = hostState.players.find((candidate) => candidate.grabTargetId === player.id);
+  if (grabOwner) releaseGrabSkill(grabOwner);
+  releaseGrabSkill(player);
+  player.hp = 0;
+  player.lives = 0;
+  player.respawnTimer = 0;
+  player.rootTimer = 0;
+  player.dotTimer = 0;
+  player.dotOwner = null;
+  player.damageReductionTimer = 0;
+  player.grabTargetId = null;
+  player.grabChannelTimer = 0;
+  player.dashTimer = 0;
+  player.vx = 0;
+  player.vy = 0;
+}
+
+function checkRoundWinner() {
+  if (!hostState || hostState.roundOver || !gameStarted) return;
+  const alivePlayers = hostState.players.filter((player) => player.lives > 0);
+  if (hostState.players.length < 2 || alivePlayers.length !== 1) return;
+
+  const winner = alivePlayers[0];
+  hostState.roundOver = true;
+  hostState.winnerId = winner.id;
+  hostState.winnerName = winner.name;
+  clearInputKeys();
+  winner.hp = Math.max(winner.hp, 1);
+  winner.vx = 0;
+  winner.vy = 0;
+  latestEvent = `${winner.name}님 승리!`;
+  eventUntil = performance.now() + 6000;
+  state = createStateSnapshot();
+  renderScoreboard();
+  renderAbilityBar();
+  renderRoundNotice();
+  sendToPeer({ type: "state", state });
 }
 
 function distanceBetween(a, b) {
@@ -637,7 +764,7 @@ function getPlayerCenterY(player) {
 }
 
 function applyDamage(attacker, target, damage, healRatio = 0, knockX = 0, knockY = 0) {
-  if (attacker.id === target.id || target.respawnTimer > 0 || target.lives <= 0) return false;
+  if (hostState.roundOver || attacker.id === target.id || target.respawnTimer > 0 || target.lives <= 0) return false;
   let actualDamage = damage;
   if (target.damageReductionTimer > 0) {
     actualDamage = Math.max(1, Math.round(damage * (1 - RED_BAT_GRAB_DAMAGE_REDUCTION)));
@@ -650,17 +777,10 @@ function applyDamage(attacker, target, damage, healRatio = 0, knockX = 0, knockY
   target.lastHitBy = attacker.id;
   healPlayer(attacker, actualDamage * healRatio);
   if (target.hp <= 0) {
-    const grabOwner = hostState.players.find((player) => player.grabTargetId === target.id);
-    if (grabOwner) releaseGrabSkill(grabOwner);
-    releaseGrabSkill(target);
-    target.lives -= 1;
-    target.respawnTimer = 90;
-    target.rootTimer = 0;
-    target.dotTimer = 0;
-    target.dotOwner = null;
-    target.damageReductionTimer = 0;
+    eliminatePlayer(target);
     attacker.score += 1;
     announce(`${attacker.name}님이 ${target.name}님을 격파했습니다`);
+    checkRoundWinner();
     return true;
   }
   return false;
@@ -670,7 +790,7 @@ function targetsInFront(attacker, reach, height) {
   const ax = getPlayerCenterX(attacker);
   const ay = getPlayerCenterY(attacker);
   return hostState.players.filter((target) => {
-    if (target.id === attacker.id || target.respawnTimer > 0) return false;
+    if (target.id === attacker.id || target.respawnTimer > 0 || target.lives <= 0) return false;
     const tx = getPlayerCenterX(target);
     const ty = getPlayerCenterY(target);
     return (tx - ax) * attacker.facing > 0 && Math.abs(tx - ax) <= reach && Math.abs(ty - ay) <= height;
@@ -923,6 +1043,17 @@ function updateHostGame(now) {
   lastHostTick = now;
   hostInputs.host = keys;
 
+  if (hostState.roundOver) {
+    state = createStateSnapshot();
+    renderScoreboard();
+    renderAbilityBar();
+    if (now - lastBroadcast > 250) {
+      sendToPeer({ type: "state", state });
+      lastBroadcast = now;
+    }
+    return;
+  }
+
   for (const player of hostState.players) {
     const input = player.id === "host" ? hostInputs.host : peerInputs[player.id] || {};
     if (player.grabTargetId && !input.k) releaseGrabSkill(player);
@@ -932,6 +1063,12 @@ function updateHostGame(now) {
     const input = player.id === "host" ? hostInputs.host : peerInputs[player.id] || {};
     updateStatusEffects(player);
     updateHeldGrab(player, input);
+    if (player.lives <= 0) {
+      releaseGrabSkill(player);
+      player.vx = 0;
+      player.vy = 0;
+      continue;
+    }
     if (player.respawnTimer > 0) {
       releaseGrabSkill(player);
       player.respawnTimer -= 1;
@@ -982,15 +1119,12 @@ function updateHostGame(now) {
     player.x = clamp(player.x, 18, WORLD.width - player.w - 18);
     collidePlatform(player, previousY);
     if (player.y > WORLD.height + 160) {
-      player.hp = 0;
-      player.lives -= 1;
-      player.respawnTimer = 90;
-      player.rootTimer = 0;
-      player.dotTimer = 0;
-      player.dotOwner = null;
-      player.damageReductionTimer = 0;
       const scorer = hostState.players.find((candidate) => candidate.id === player.lastHitBy);
       if (scorer) scorer.score += 1;
+      eliminatePlayer(player);
+      announce(`${player.name}님이 탈락했습니다`);
+      checkRoundWinner();
+      continue;
     }
 
     player.attackCooldown = Math.max(0, player.attackCooldown - 1);
@@ -1005,6 +1139,7 @@ function updateHostGame(now) {
   }
 
   state = createStateSnapshot();
+  checkRoundWinner();
   renderScoreboard();
   renderAbilityBar();
   if (now - lastBroadcast > 33) {
@@ -1020,8 +1155,24 @@ function formatCooldown(frames) {
 
 function renderAbilityBar() {
   const me = state.players.find((player) => player.id === myId);
+  renderRoundNotice();
+  abilityBar.classList.remove("isSpectating");
+  if (state.roundOver) {
+    abilityBar.innerHTML = "";
+    return;
+  }
   if (!me) {
     abilityBar.innerHTML = "";
+    return;
+  }
+  if (me.lives <= 0 || me.spectating) {
+    abilityBar.classList.add("isSpectating");
+    abilityBar.innerHTML = `
+      <div class="abilityItem spectatorItem">
+        <strong>관전 중</strong>
+        <span>남은 플레이어를 지켜보는 중</span>
+      </div>
+    `;
     return;
   }
 
@@ -1048,6 +1199,18 @@ function renderAbilityBar() {
     .join("");
 }
 
+function renderRoundNotice() {
+  if (!roundNotice) return;
+  if (!state.roundOver) {
+    roundNotice.textContent = "";
+    return;
+  }
+
+  roundNotice.textContent = networkRole === "host"
+    ? "라운드 종료: 화면 아무 곳이나 클릭하면 대기방으로 돌아갈 수 있습니다."
+    : "라운드 종료: 방장이 화면을 클릭하면 대기방으로 돌아갑니다.";
+}
+
 function renderCharacterSelect() {
   characterGrid.innerHTML = characters
     .map((character) => `
@@ -1063,11 +1226,7 @@ function renderCharacterSelect() {
         </span>
         <span>
           <strong class="characterName">${character.name}</strong>
-          <span class="characterStats">
-            <span class="statBar" style="--stat: ${character.speed}%"><span>속도</span><span></span></span>
-            <span class="statBar" style="--stat: ${character.power}%"><span>힘</span><span></span></span>
-            <span class="statBar" style="--stat: ${character.jump}%"><span>점프</span><span></span></span>
-          </span>
+          <span class="characterDescription">${escapeHtml(character.description || "")}</span>
         </span>
       </button>
     `)
@@ -1145,6 +1304,187 @@ function getSpriteMotion(player) {
 
 function drawImageAtCenter(image, width, height) {
   ctx.drawImage(image, -width / 2, -height / 2 - 4, width, height);
+}
+
+function drawTinyBat(x, y, scale, angle, alpha) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(angle);
+  ctx.scale(scale, scale);
+  ctx.globalAlpha *= alpha;
+  ctx.fillStyle = "#050607";
+  ctx.strokeStyle = "rgba(239, 35, 60, 0.62)";
+  ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  ctx.moveTo(-18, 0);
+  ctx.quadraticCurveTo(-11, -10, -4, -2);
+  ctx.quadraticCurveTo(0, -9, 4, -2);
+  ctx.quadraticCurveTo(11, -10, 18, 0);
+  ctx.quadraticCurveTo(9, 1, 5, 8);
+  ctx.quadraticCurveTo(0, 3, -5, 8);
+  ctx.quadraticCurveTo(-9, 1, -18, 0);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawVampireUltAura(player) {
+  const now = performance.now();
+  const radius = player.ultRadius || RED_BAT_ULT_AURA_RADIUS;
+  const pulse = 1 + Math.sin(now / 150) * 0.055;
+  const swirl = now / 950;
+
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+
+  const glow = ctx.createRadialGradient(0, 4, 20, 0, 4, radius * 1.08);
+  glow.addColorStop(0, "rgba(255, 245, 245, 0.16)");
+  glow.addColorStop(0.26, "rgba(239, 35, 60, 0.16)");
+  glow.addColorStop(0.62, "rgba(110, 8, 28, 0.14)");
+  glow.addColorStop(1, "rgba(239, 35, 60, 0)");
+  ctx.fillStyle = glow;
+  ctx.beginPath();
+  ctx.arc(0, 4, radius * 1.08 * pulse, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.save();
+  ctx.rotate(swirl);
+  ctx.strokeStyle = "rgba(255, 245, 245, 0.26)";
+  ctx.lineWidth = 2;
+  ctx.setLineDash([18, 18]);
+  ctx.beginPath();
+  ctx.arc(0, 4, radius * 0.88 * pulse, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
+
+  ctx.save();
+  ctx.rotate(-swirl * 1.35);
+  ctx.strokeStyle = "rgba(239, 35, 60, 0.72)";
+  ctx.lineWidth = 5;
+  ctx.setLineDash([34, 16, 8, 16]);
+  ctx.beginPath();
+  ctx.arc(0, 4, radius * pulse, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
+
+  for (let i = 0; i < 28; i += 1) {
+    const angle = (Math.PI * 2 * i) / 28 + swirl * 0.75;
+    const wave = Math.sin(now / 180 + i * 1.7);
+    const inner = radius * (0.78 + wave * 0.025);
+    const outer = radius * (1.02 + wave * 0.035);
+    ctx.strokeStyle = i % 2 === 0 ? "rgba(255, 245, 245, 0.38)" : "rgba(239, 35, 60, 0.55)";
+    ctx.lineWidth = i % 2 === 0 ? 1.6 : 2.4;
+    ctx.beginPath();
+    ctx.moveTo(Math.cos(angle) * inner, 4 + Math.sin(angle) * inner);
+    ctx.lineTo(Math.cos(angle) * outer, 4 + Math.sin(angle) * outer);
+    ctx.stroke();
+  }
+
+  for (let i = 0; i < 7; i += 1) {
+    const angle = swirl * 1.8 + (Math.PI * 2 * i) / 7;
+    const distance = radius * (0.56 + 0.12 * Math.sin(now / 320 + i));
+    drawTinyBat(
+      Math.cos(angle) * distance,
+      -20 + Math.sin(angle) * distance * 0.46,
+      0.62 + 0.1 * Math.sin(now / 260 + i),
+      angle + Math.PI / 2,
+      0.42
+    );
+  }
+
+  for (let i = 0; i < 12; i += 1) {
+    const angle = (Math.PI * 2 * i) / 12 - swirl;
+    const distance = radius * (0.18 + (i % 4) * 0.13);
+    const flame = Math.sin(now / 125 + i * 0.91);
+    ctx.fillStyle = `rgba(239, 35, 60, ${0.14 + Math.max(0, flame) * 0.16})`;
+    ctx.beginPath();
+    ctx.ellipse(
+      Math.cos(angle) * distance,
+      24 + Math.sin(angle) * distance * 0.36,
+      8 + flame * 2,
+      34 + flame * 9,
+      angle,
+      0,
+      Math.PI * 2
+    );
+    ctx.fill();
+  }
+
+  ctx.restore();
+}
+
+function drawVampireUltBurst(player) {
+  const progress = getActionProgress(player);
+  const burst = easeOutCubic(progress);
+  const now = performance.now();
+  const radius = (player.ultRadius || RED_BAT_ULT_AURA_RADIUS) + 55;
+  const flash = Math.sin(progress * Math.PI);
+
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+
+  const shockwave = ctx.createRadialGradient(0, 0, 12, 0, 0, radius * (0.55 + burst * 0.58));
+  shockwave.addColorStop(0, `rgba(255, 255, 255, ${0.22 * flash})`);
+  shockwave.addColorStop(0.24, `rgba(239, 35, 60, ${0.34 * flash})`);
+  shockwave.addColorStop(0.72, `rgba(80, 0, 22, ${0.22 * flash})`);
+  shockwave.addColorStop(1, "rgba(239, 35, 60, 0)");
+  ctx.fillStyle = shockwave;
+  ctx.beginPath();
+  ctx.arc(0, 0, radius * (0.55 + burst * 0.58), 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.strokeStyle = `rgba(255, 245, 245, ${0.82 * (1 - progress * 0.35)})`;
+  ctx.lineWidth = 8 - progress * 3;
+  ctx.beginPath();
+  ctx.arc(0, 0, radius * (0.34 + burst * 0.72), 0, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.strokeStyle = `rgba(239, 35, 60, ${0.9 * (1 - progress * 0.25)})`;
+  ctx.lineWidth = 13 - progress * 6;
+  ctx.setLineDash([48, 18]);
+  ctx.beginPath();
+  ctx.arc(0, 0, radius * (0.2 + burst * 0.84), -now / 340, Math.PI * 2 - now / 340);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  for (let i = 0; i < 18; i += 1) {
+    const angle = (Math.PI * 2 * i) / 18 + now / 700;
+    const inner = 42 + burst * 42;
+    const outer = radius * (0.45 + burst * 0.62) * (0.86 + 0.1 * Math.sin(i));
+    ctx.strokeStyle = i % 3 === 0 ? "rgba(255, 245, 245, 0.68)" : "rgba(239, 35, 60, 0.64)";
+    ctx.lineWidth = i % 3 === 0 ? 4 : 2.4;
+    ctx.beginPath();
+    ctx.moveTo(Math.cos(angle) * inner, Math.sin(angle) * inner);
+    ctx.lineTo(Math.cos(angle) * outer, Math.sin(angle) * outer);
+    ctx.stroke();
+  }
+
+  for (let i = 0; i < 10; i += 1) {
+    const angle = -Math.PI * 0.35 + (Math.PI * 0.7 * i) / 9 + player.facing * 0.12;
+    const side = player.facing > 0 ? 1 : -1;
+    ctx.save();
+    ctx.rotate(side * angle);
+    ctx.strokeStyle = i % 2 === 0 ? "rgba(255, 245, 245, 0.86)" : "rgba(239, 35, 60, 0.78)";
+    ctx.lineWidth = 5 - progress * 2;
+    ctx.beginPath();
+    ctx.arc(side * 52, 0, 34 + burst * 86 + i * 2, -0.25, 0.72);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  for (let i = 0; i < 9; i += 1) {
+    const angle = (Math.PI * 2 * i) / 9 - now / 520;
+    drawTinyBat(
+      Math.cos(angle) * radius * (0.22 + burst * 0.62),
+      -18 + Math.sin(angle) * radius * (0.12 + burst * 0.28),
+      0.78 + flash * 0.34,
+      angle,
+      0.5 * (1 - progress * 0.2)
+    );
+  }
+
+  ctx.restore();
 }
 
 function getPlayerSpriteHeight(character, player) {
@@ -1281,10 +1621,15 @@ function drawGrabLinks() {
 
 function updateCamera() {
   const world = state.world || WORLD;
-  const viewportWidth = canvas.width / VIEW_SCALE;
-  const viewportHeight = canvas.height / VIEW_SCALE;
+  const targetScale = state.roundOver ? ROUND_END_VIEW_SCALE : VIEW_SCALE;
+  if (!camera.scale) camera.scale = VIEW_SCALE;
+  camera.scale += (targetScale - camera.scale) * (state.roundOver ? 0.055 : 0.14);
+
+  const viewportWidth = canvas.width / camera.scale;
+  const viewportHeight = canvas.height / camera.scale;
   const alivePlayers = state.players.filter((player) => !player.respawning && player.lives > 0);
-  const focus = alivePlayers.find((player) => player.id === myId) || alivePlayers[0];
+  const winner = state.roundOver ? state.players.find((player) => player.id === state.winnerId) : null;
+  const focus = winner || alivePlayers.find((player) => player.id === myId) || alivePlayers[0];
   const maxX = Math.max(0, world.width - viewportWidth);
   const maxY = Math.max(0, world.height - viewportHeight);
 
@@ -1302,6 +1647,7 @@ function updateCamera() {
   if (!camera.initialized) {
     camera.x = targetX;
     camera.y = targetY;
+    camera.scale = targetScale;
     camera.initialized = true;
     return;
   }
@@ -1401,18 +1747,7 @@ function drawPlayer(player) {
   ctx.fill();
 
   if (player.ultActive) {
-    const pulse = 1 + Math.sin(performance.now() / 140) * 0.08;
-    const radius = player.ultRadius || 230;
-    ctx.strokeStyle = "rgba(239, 35, 60, 0.48)";
-    ctx.lineWidth = 5;
-    ctx.beginPath();
-    ctx.arc(0, 0, radius * pulse, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.strokeStyle = "rgba(255, 245, 245, 0.24)";
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.arc(0, 0, radius * 0.72 * pulse, 0, Math.PI * 2);
-    ctx.stroke();
+    drawVampireUltAura(player);
   }
 
   if (characterImage && characterImage.complete && characterImage.naturalWidth > 0) {
@@ -1460,11 +1795,7 @@ function drawPlayer(player) {
       ctx.fillStyle = "rgba(239,35,60,0.42)";
       ctx.fillRect(player.facing > 0 ? -116 : -16, -19, 112, 32);
     } else if (player.action === "ultBurst") {
-      ctx.strokeStyle = "rgba(248,250,252,0.8)";
-      ctx.lineWidth = 7;
-      ctx.beginPath();
-      ctx.arc(0, 0, (player.ultRadius || 230) + 55, 0, Math.PI * 2);
-      ctx.stroke();
+      drawVampireUltBurst(player);
     } else if (player.action === "grab") {
       ctx.strokeStyle = "rgba(239,35,60,0.88)";
       ctx.lineWidth = 8;
@@ -1545,13 +1876,35 @@ function drawEvent() {
   ctx.fillText(latestEvent, 640, 62);
 }
 
+function drawRoundEndOverlay() {
+  if (!state.roundOver || !state.winnerName) return;
+  const hostHint = networkRole === "host"
+    ? "화면 아무 곳이나 클릭해 대기방으로 돌아가기"
+    : "방장이 화면을 클릭하면 대기방으로 돌아갑니다";
+
+  ctx.save();
+  ctx.fillStyle = "rgba(7, 10, 15, 0.62)";
+  ctx.fillRect(330, 88, 620, 118);
+  ctx.strokeStyle = "rgba(248, 113, 113, 0.55)";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(330, 88, 620, 118);
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#fff";
+  ctx.font = "900 34px system-ui";
+  ctx.fillText(`${state.winnerName}님 승리!`, 640, 135);
+  ctx.fillStyle = "#fecaca";
+  ctx.font = "700 18px system-ui";
+  ctx.fillText(hostHint, 640, 174);
+  ctx.restore();
+}
+
 function loop() {
   updateGuestPrediction();
   syncClawAfterimages();
   updateCamera();
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.save();
-  ctx.scale(VIEW_SCALE, VIEW_SCALE);
+  ctx.scale(camera.scale || VIEW_SCALE, camera.scale || VIEW_SCALE);
   ctx.translate(-camera.x, -camera.y);
   drawArena();
   drawGrabLinks();
@@ -1559,6 +1912,7 @@ function loop() {
   drawClawAfterimages();
   ctx.restore();
   drawEvent();
+  drawRoundEndOverlay();
   requestAnimationFrame(loop);
 }
 
@@ -1616,6 +1970,12 @@ changeCharacterButton.addEventListener("click", () => {
 });
 
 window.addEventListener("keydown", (event) => {
+  if (isTypingField(event.target)) return;
+  if (gameStarted && state.roundOver) {
+    event.preventDefault();
+    clearInputKeys();
+    return;
+  }
   const input = keyMap[event.code];
   if (!input) return;
   event.preventDefault();
@@ -1624,12 +1984,25 @@ window.addEventListener("keydown", (event) => {
 });
 
 window.addEventListener("keyup", (event) => {
+  if (isTypingField(event.target)) return;
+  if (gameStarted && state.roundOver) {
+    event.preventDefault();
+    clearInputKeys();
+    return;
+  }
   const input = keyMap[event.code];
   if (!input) return;
   event.preventDefault();
   keys[input] = false;
   sendInput();
 });
+
+window.addEventListener("click", (event) => {
+  if (networkRole !== "host" || !gameStarted || !state.roundOver) return;
+  event.preventDefault();
+  event.stopPropagation();
+  returnToWaitingAfterRound();
+}, true);
 
 setInterval(() => updateHostGame(performance.now()), 1000 / 60);
 setInterval(sendInput, 1000 / 30);

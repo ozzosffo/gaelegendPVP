@@ -121,7 +121,8 @@ p {
 
 .characterGrid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(170px, 230px));
+  justify-content: center;
   gap: 12px;
 }
 
@@ -194,25 +195,17 @@ p {
   font-size: 1.2rem;
 }
 
-.characterStats {
-  display: grid;
-  gap: 7px;
+.characterDescription {
+  display: block;
   margin-top: 12px;
+  padding: 7px 9px;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.07);
   color: #cbd5e1;
   font-size: 0.9rem;
-}
-
-.statBar {
-  display: grid;
-  grid-template-columns: 54px 1fr;
-  align-items: center;
-  gap: 8px;
-}
-
-.statBar span:last-child {
-  height: 7px;
-  border-radius: 999px;
-  background: linear-gradient(90deg, var(--fighter-color) var(--stat), rgba(255, 255, 255, 0.14) var(--stat));
+  font-weight: 700;
+  line-height: 1.35;
+  text-align: center;
 }
 
 .lobbyPanel,
@@ -464,11 +457,11 @@ p {
 }
 
 .characterGrid.compact {
-  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(160px, 230px));
 }
 
 .characterGrid.compact .characterCard {
-  min-height: 210px;
+  min-height: 276px;
   padding: 12px;
 }
 
@@ -553,6 +546,10 @@ canvas {
   pointer-events: none;
 }
 
+.abilityBar.isSpectating {
+  grid-template-columns: minmax(170px, 240px);
+}
+
 .abilityItem {
   min-height: 58px;
   display: grid;
@@ -614,6 +611,22 @@ canvas {
   padding: 8px 12px;
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.07);
+}
+
+.roundNotice {
+  flex-basis: 100%;
+  margin: 0;
+  padding: 9px 12px;
+  border: 1px solid rgba(248, 113, 113, 0.36);
+  border-radius: 8px;
+  background: rgba(248, 113, 113, 0.13);
+  color: #fee2e2;
+  font-weight: 800;
+  text-align: center;
+}
+
+.roundNotice:empty {
+  display: none;
 }
 
 @media (max-width: 760px) {
