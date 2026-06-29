@@ -141,7 +141,11 @@ function createRoomCode() {
 }
 
 function normalizeRoomCode(value) {
-  return String(value).trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 8);
+  return String(value).trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
+}
+
+function isValidRoomCode(code) {
+  return code.length === 6 && [...code].every((char) => ROOM_CODE_ALPHABET.includes(char));
 }
 
 function peerIdForRoom(code) {
@@ -201,14 +205,25 @@ function createPeer(peerId) {
   if (!window.Peer) throw new Error("PeerJS를 불러오지 못했습니다.");
   const peer = new window.Peer(peerId);
   peer.on("error", (error) => {
-    const text = error.message || error.type || String(error);
-    waitingStatus.textContent = `연결 오류: ${text}`;
-    statusText.textContent = `연결 오류: ${text}`;
+    const text = getPeerErrorMessage(error);
+    waitingStatus.textContent = text;
+    statusText.textContent = text;
   });
   peer.on("disconnected", () => {
     waitingStatus.textContent = "연결이 끊겼습니다. 방을 다시 만들어 주세요.";
   });
   return peer;
+}
+
+function getPeerErrorMessage(error) {
+  const text = error?.message || error?.type || String(error);
+  if (text.includes("Could not connect to peer")) {
+    const code = text.match(/gaelegend-([A-Z0-9]+)/i)?.[1] || "";
+    return code
+      ? `방 코드 ${code} 방을 찾을 수 없습니다. 방장이 먼저 방을 만들고, 만들어진 6자리 코드를 보내줘야 합니다.`
+      : "방을 찾을 수 없습니다. 방장이 먼저 방을 만들고, 만들어진 6자리 코드를 보내줘야 합니다.";
+  }
+  return `연결 오류: ${text}`;
 }
 
 function wireChannel(channel) {
@@ -264,6 +279,9 @@ async function createGuestAnswer() {
   gameStarted = false;
   const code = normalizeRoomCode(roomCodeInput.value);
   if (!code) throw new Error("방 코드를 입력해 주세요.");
+  if (!isValidRoomCode(code)) {
+    throw new Error("방 코드는 방장이 만든 6자리 코드만 입력해 주세요. GitHub 링크나 HTTPS는 방 코드가 아니에요.");
+  }
   roomCodeInput.value = code;
   setRoomCodeDisplay(code);
   state = { type: "state", world: WORLD, platforms: PLATFORMS, players: [] };
